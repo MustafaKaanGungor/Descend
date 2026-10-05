@@ -1,0 +1,321 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://Scripts/Hook/grapple_hook.gd" id="1_hook"]
+[ext_resource type="AudioStream" path="res://Assets/Audio/hook_catch_1.wav" id="2_catch1"]
+[ext_resource type="AudioStream" path="res://Assets/Audio/hook_catch_2.wav" id="3_catch2"]
+[ext_resource type="AudioStream" path="res://Assets/Audio/hook_catch_3.wav" id="4_catch3"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_metal"]
+albedo_color = Color(0.46, 0.47, 0.5, 1)
+metallic = 0.55
+roughness = 0.38
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_edge"]
+albedo_color = Color(0.78, 0.79, 0.8, 1)
+metallic = 0.7
+roughness = 0.2
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_rope"]
+albedo_color = Color(0.52, 0.42, 0.28, 1)
+roughness = 0.95
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_shaft"]
+material = SubResource("StandardMaterial3D_metal")
+top_radius = 0.016
+bottom_radius = 0.016
+height = 1.0
+radial_segments = 12
+rings = 1
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_collar"]
+material = SubResource("StandardMaterial3D_metal")
+top_radius = 0.026
+bottom_radius = 0.026
+height = 1.0
+radial_segments = 12
+rings = 1
+
+[sub_resource type="SphereMesh" id="SphereMesh_cap"]
+material = SubResource("StandardMaterial3D_metal")
+radius = 0.027
+height = 0.054
+radial_segments = 12
+rings = 6
+
+[sub_resource type="TorusMesh" id="TorusMesh_eye"]
+material = SubResource("StandardMaterial3D_metal")
+inner_radius = 0.022
+outer_radius = 0.038
+rings = 20
+ring_segments = 8
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_arm_a"]
+material = SubResource("StandardMaterial3D_metal")
+top_radius = 0.014
+bottom_radius = 0.014
+height = 1.0
+radial_segments = 8
+rings = 1
+
+[sub_resource type="SphereMesh" id="SphereMesh_arm_a"]
+material = SubResource("StandardMaterial3D_metal")
+radius = 0.014
+height = 0.028
+radial_segments = 8
+rings = 4
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_arm_b"]
+material = SubResource("StandardMaterial3D_metal")
+top_radius = 0.012
+bottom_radius = 0.012
+height = 1.0
+radial_segments = 8
+rings = 1
+
+[sub_resource type="SphereMesh" id="SphereMesh_arm_b"]
+material = SubResource("StandardMaterial3D_metal")
+radius = 0.012
+height = 0.024
+radial_segments = 8
+rings = 4
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_arm_c"]
+material = SubResource("StandardMaterial3D_metal")
+top_radius = 0.0105
+bottom_radius = 0.0105
+height = 1.0
+radial_segments = 8
+rings = 1
+
+[sub_resource type="SphereMesh" id="SphereMesh_arm_c"]
+material = SubResource("StandardMaterial3D_metal")
+radius = 0.0105
+height = 0.021
+radial_segments = 8
+rings = 4
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_tip"]
+material = SubResource("StandardMaterial3D_edge")
+top_radius = 0.0
+bottom_radius = 0.0105
+height = 1.0
+radial_segments = 8
+rings = 1
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_rope"]
+material = SubResource("StandardMaterial3D_rope")
+top_radius = 0.012
+bottom_radius = 0.012
+height = 1.0
+radial_segments = 6
+rings = 1
+
+[node name="GrappleHook" type="Node3D"]
+script = ExtResource("1_hook")
+catch_sounds = Array[AudioStream]([ExtResource("2_catch1"), ExtResource("3_catch2"), ExtResource("4_catch3")])
+
+[node name="Model" type="Node3D" parent="."]
+
+[node name="Shaft" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0, 1, -1, 0, 0, 0, -0.27, 0, 0, 0, 0.035)
+mesh = SubResource("CylinderMesh_shaft")
+
+[node name="Collar" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0, 1, -1, 0, 0, 0, -0.07, 0, 0, 0, -0.105)
+mesh = SubResource("CylinderMesh_collar")
+
+[node name="Cap" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.14)
+mesh = SubResource("SphereMesh_cap")
+
+[node name="ShaftBand" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0, 1, 1, 0, 0, 0, 0.02, 0, 0, 0, 0.14)
+mesh = SubResource("CylinderMesh_collar")
+
+[node name="Eye" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0.205)
+mesh = SubResource("TorusMesh_eye")
+
+[node name="Tine0_0" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0.70711, 0.03536, 0.47303, -0.70711, 0.03536, 0.47303, 0, -0.045, 0.74329, 0.03182, 0.03182, -0.1425)
+mesh = SubResource("CylinderMesh_arm_a")
+
+[node name="Tine0_1" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0.70711, 0.03536, -0.13868, -0.70711, 0.03536, -0.13868, 0, 0.01, 0.98058, 0.06718, 0.06718, -0.16)
+mesh = SubResource("CylinderMesh_arm_a")
+
+[node name="Tine0_Joint1" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0495, 0.0495, -0.165)
+mesh = SubResource("SphereMesh_arm_a")
+
+[node name="Tine0_2" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0.70711, 0.02475, -0.57928, -0.70711, 0.02475, -0.57928, 0, 0.05, 0.57346, 0.09723, 0.09723, -0.13)
+mesh = SubResource("CylinderMesh_arm_b")
+
+[node name="Tine0_Joint2" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.08485, 0.08485, -0.155)
+mesh = SubResource("SphereMesh_arm_b")
+
+[node name="Tine0_3" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0.00849, 0.99173, 0.99159, 0.00849, -0.01662, -0.12944, 0.065, -0.12729, 0.11384, 0.11384, -0.0725)
+mesh = SubResource("CylinderMesh_arm_b")
+
+[node name="Tine0_Joint3" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.1096, 0.1096, -0.105)
+mesh = SubResource("SphereMesh_arm_b")
+
+[node name="Tine0_4" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, -0.00636, 0.99034, 0.99015, -0.00636, -0.01942, 0.14003, 0.045, 0.13731, 0.1149, 0.1149, -0.0175)
+mesh = SubResource("CylinderMesh_arm_c")
+
+[node name="Tine0_Joint4" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.11809, 0.11809, -0.04)
+mesh = SubResource("SphereMesh_arm_c")
+
+[node name="Tine0_Joint5" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.11172, 0.11172, 0.005)
+mesh = SubResource("SphereMesh_arm_c")
+
+[node name="Tine0_Tip" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, -0.01626, 0.96207, 0.95895, -0.01626, -0.07736, 0.28356, 0.055, 0.26161, 0.10359, 0.10359, 0.0325)
+mesh = SubResource("CylinderMesh_tip")
+
+[node name="Tine1_0" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0.70711, -0.03536, -0.47303, 0.70711, 0.03536, 0.47303, 0, -0.045, 0.74329, -0.03182, 0.03182, -0.1425)
+mesh = SubResource("CylinderMesh_arm_a")
+
+[node name="Tine1_1" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0.70711, -0.03536, 0.13868, 0.70711, 0.03536, -0.13868, 0, 0.01, 0.98058, -0.06718, 0.06718, -0.16)
+mesh = SubResource("CylinderMesh_arm_a")
+
+[node name="Tine1_Joint1" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0495, 0.0495, -0.165)
+mesh = SubResource("SphereMesh_arm_a")
+
+[node name="Tine1_2" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0.70711, -0.02475, 0.57928, 0.70711, 0.02475, -0.57928, 0, 0.05, 0.57346, -0.09723, 0.09723, -0.13)
+mesh = SubResource("CylinderMesh_arm_b")
+
+[node name="Tine1_Joint2" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.08485, 0.08485, -0.155)
+mesh = SubResource("SphereMesh_arm_b")
+
+[node name="Tine1_3" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, -0.00849, 0.99173, 0.99159, 0.00849, 0.01662, -0.12944, 0.065, 0.12729, -0.11384, 0.11384, -0.0725)
+mesh = SubResource("CylinderMesh_arm_b")
+
+[node name="Tine1_Joint3" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.1096, 0.1096, -0.105)
+mesh = SubResource("SphereMesh_arm_b")
+
+[node name="Tine1_4" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0.00636, 0.99034, 0.99015, -0.00636, 0.01942, 0.14003, 0.045, -0.13731, -0.1149, 0.1149, -0.0175)
+mesh = SubResource("CylinderMesh_arm_c")
+
+[node name="Tine1_Joint4" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.11809, 0.11809, -0.04)
+mesh = SubResource("SphereMesh_arm_c")
+
+[node name="Tine1_Joint5" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.11172, 0.11172, 0.005)
+mesh = SubResource("SphereMesh_arm_c")
+
+[node name="Tine1_Tip" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0.01626, 0.96207, 0.95895, -0.01626, 0.07736, 0.28356, 0.055, -0.26161, -0.10359, 0.10359, 0.0325)
+mesh = SubResource("CylinderMesh_tip")
+
+[node name="Tine2_0" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(-0.70711, -0.03536, -0.47303, 0.70711, -0.03536, -0.47303, 0, -0.045, 0.74329, -0.03182, -0.03182, -0.1425)
+mesh = SubResource("CylinderMesh_arm_a")
+
+[node name="Tine2_1" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(-0.70711, -0.03536, 0.13868, 0.70711, -0.03536, 0.13868, 0, 0.01, 0.98058, -0.06718, -0.06718, -0.16)
+mesh = SubResource("CylinderMesh_arm_a")
+
+[node name="Tine2_Joint1" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0495, -0.0495, -0.165)
+mesh = SubResource("SphereMesh_arm_a")
+
+[node name="Tine2_2" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(-0.70711, -0.02475, 0.57928, 0.70711, -0.02475, 0.57928, 0, 0.05, 0.57346, -0.09723, -0.09723, -0.13)
+mesh = SubResource("CylinderMesh_arm_b")
+
+[node name="Tine2_Joint2" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.08485, -0.08485, -0.155)
+mesh = SubResource("SphereMesh_arm_b")
+
+[node name="Tine2_3" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, -0.00849, 0.99173, 0.99159, -0.00849, -0.01662, 0.12944, 0.065, 0.12729, -0.11384, -0.11384, -0.0725)
+mesh = SubResource("CylinderMesh_arm_b")
+
+[node name="Tine2_Joint3" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.1096, -0.1096, -0.105)
+mesh = SubResource("SphereMesh_arm_b")
+
+[node name="Tine2_4" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0.00636, 0.99034, 0.99015, 0.00636, -0.01942, -0.14003, 0.045, -0.13731, -0.1149, -0.1149, -0.0175)
+mesh = SubResource("CylinderMesh_arm_c")
+
+[node name="Tine2_Joint4" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.11809, -0.11809, -0.04)
+mesh = SubResource("SphereMesh_arm_c")
+
+[node name="Tine2_Joint5" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.11172, -0.11172, 0.005)
+mesh = SubResource("SphereMesh_arm_c")
+
+[node name="Tine2_Tip" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0.01626, 0.96207, 0.95895, 0.01626, -0.07736, -0.28356, 0.055, -0.26161, -0.10359, -0.10359, 0.0325)
+mesh = SubResource("CylinderMesh_tip")
+
+[node name="Tine3_0" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(-0.70711, 0.03536, 0.47303, -0.70711, -0.03536, -0.47303, 0, -0.045, 0.74329, 0.03182, -0.03182, -0.1425)
+mesh = SubResource("CylinderMesh_arm_a")
+
+[node name="Tine3_1" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(-0.70711, 0.03536, -0.13868, -0.70711, -0.03536, 0.13868, 0, 0.01, 0.98058, 0.06718, -0.06718, -0.16)
+mesh = SubResource("CylinderMesh_arm_a")
+
+[node name="Tine3_Joint1" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0495, -0.0495, -0.165)
+mesh = SubResource("SphereMesh_arm_a")
+
+[node name="Tine3_2" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(-0.70711, 0.02475, -0.57928, -0.70711, -0.02475, 0.57928, 0, 0.05, 0.57346, 0.09723, -0.09723, -0.13)
+mesh = SubResource("CylinderMesh_arm_b")
+
+[node name="Tine3_Joint2" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.08485, -0.08485, -0.155)
+mesh = SubResource("SphereMesh_arm_b")
+
+[node name="Tine3_3" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0.00849, 0.99173, 0.99159, -0.00849, 0.01662, 0.12944, 0.065, -0.12729, 0.11384, -0.11384, -0.0725)
+mesh = SubResource("CylinderMesh_arm_b")
+
+[node name="Tine3_Joint3" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.1096, -0.1096, -0.105)
+mesh = SubResource("SphereMesh_arm_b")
+
+[node name="Tine3_4" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, -0.00636, 0.99034, 0.99015, 0.00636, 0.01942, -0.14003, 0.045, 0.13731, 0.1149, -0.1149, -0.0175)
+mesh = SubResource("CylinderMesh_arm_c")
+
+[node name="Tine3_Joint4" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.11809, -0.11809, -0.04)
+mesh = SubResource("SphereMesh_arm_c")
+
+[node name="Tine3_Joint5" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.11172, -0.11172, 0.005)
+mesh = SubResource("SphereMesh_arm_c")
+
+[node name="Tine3_Tip" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, -0.01626, 0.96207, 0.95895, 0.01626, 0.07736, -0.28356, 0.055, 0.26161, 0.10359, -0.10359, 0.0325)
+mesh = SubResource("CylinderMesh_tip")
+
+[node name="Rope" type="MeshInstance3D" parent="."]
+cast_shadow = 0
+mesh = SubResource("CylinderMesh_rope")
+
+[node name="CatchSound" type="AudioStreamPlayer3D" parent="."]
+unit_size = 10.0
+max_distance = 80.0

@@ -1,0 +1,42 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://Scripts/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://Scripts/Level/level_generator.gd" id="2_generator"]
+[ext_resource type="Script" path="res://Scripts/Level/descent_run.gd" id="3_run"]
+[ext_resource type="PackedScene" path="res://Scenes/speed_shader.tscn" id="4_speed"]
+[ext_resource type="PackedScene" path="res://Scenes/UI/ui.tscn" id="5_ui"]
+
+[sub_resource type="Environment" id="Environment_shaft"]
+background_mode = 1
+background_color = Color(0.05, 0.06, 0.08, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.42, 0.44, 0.5, 1)
+ambient_light_energy = 0.55
+tonemap_mode = 3
+glow_enabled = true
+fog_enabled = true
+fog_light_color = Color(0.16, 0.18, 0.24, 1)
+fog_density = 0.012
+
+[node name="DescentLevel" type="Node3D"]
+script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_shaft")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.81915, -0.51984, 0.24240, 0.00000, 0.42262, 0.90631, -0.57358, -0.74240, 0.34619, 0, 30, 0)
+light_energy = 1.3
+shadow_enabled = true
+
+[node name="SpeedShader" parent="." instance=ExtResource("4_speed")]
+
+[node name="UI" parent="." instance=ExtResource("5_ui")]
+
+[node name="PlayerSpawn" type="Marker3D" parent="."]
+
+[node name="LevelGenerator" type="Node3D" parent="."]
+script = ExtResource("2_generator")
+
+[node name="DescentRun" type="Node" parent="."]
+script = ExtResource("3_run")

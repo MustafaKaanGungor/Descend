@@ -7,6 +7,9 @@ const METHOD_HOOK_RELEASE: StringName = &"release"
 const METHOD_HOOK_GET_STATE: StringName = &"get_state"
 const METHOD_HOOK_SET_WRAP_POINTS: StringName = &"set_wrap_points"
 const METHOD_HOOK_SET_ROPE_SLACK: StringName = &"set_rope_slack"
+const METHOD_HOOK_SET_PULLING: StringName = &"set_pulling"
+const METHOD_HOOK_GET_ANCHOR_WRAPS: StringName = &"get_anchor_wraps"
+const METHOD_HOOK_GET_ROPE_OUT_LENGTH: StringName = &"get_rope_out_length"
 
 @export var hook_scene: PackedScene = preload("res://Scenes/Hook/grapple_hook.tscn")
 
@@ -518,6 +521,19 @@ func get_hook_swing_blend() -> float:
 
 func get_rope_length() -> float:
 	return _rope_length
+
+
+## Rope currently out: the anchored rope's full length, or what a thrown hook has paid out.
+func get_rope_used_length() -> float:
+	if _is_hook_anchored:
+		return _rope_length
+	if _hook != null and is_instance_valid(_hook):
+		return float(_hook.call(METHOD_HOOK_GET_ROPE_OUT_LENGTH))
+	return 0.0
+
+
+func get_rope_max_length() -> float:
+	return maxf(MovementHook.max_rope_length, 0.1)
 
 
 func consume_hook_throw_feedback() -> float:
@@ -2993,6 +3009,7 @@ func _update_landing_feedback(fall_speed_before_slide: float) -> void:
 	var horizontal_speed: float = Vector2(velocity.x, velocity.z).length()
 	var impact: float = LandingFeel.get_impact_strength(fall_speed, horizontal_speed, _get_sprint_speed_limit())
 	LoudnessManger.register_landing(fall_speed, landing_drop_height, impact)
+	HealthManager.register_landing(fall_speed)
 	if impact <= 0.0:
 		return
 
@@ -3038,6 +3055,12 @@ func _update_hook(delta: float, on_floor: bool) -> void:
 	if _is_hook_anchored and _hook != null and is_instance_valid(_hook):
 		var free_slack: float = _get_hook_free_rope_length() - _get_hook_attach_position().distance_to(_get_hook_pivot())
 		_hook.call(METHOD_HOOK_SET_ROPE_SLACK, free_slack)
+	if not _is_hook_anchored and _hook != null and is_instance_valid(_hook):
+		# A hook that hasn't caught stays put until the player pulls it in with the reel key.
+		var is_pulling_hook: bool = InputManager.is_sprint_pressed()
+		if is_pulling_hook:
+			_wants_sprint = false
+		_hook.call(METHOD_HOOK_SET_PULLING, is_pulling_hook)
 
 	var is_holding_hook: bool = _hook != null and StringName(_hook.call(METHOD_HOOK_GET_STATE)) != HOOK_STATE_REELING
 	_hook_hold_blend = HookFeel.get_blend(_hook_hold_blend, 1.0 if is_holding_hook else 0.0, delta)
@@ -3103,9 +3126,26 @@ func _on_hook_anchored(anchor_point: Vector3) -> void:
 	_hook_anchor = anchor_point
 	_clear_hook_rope_wrap()
 	var attach_position: Vector3 = _get_hook_attach_position()
-	_rope_length = MovementHook.get_clamped_rope_length(attach_position.distance_to(anchor_point))
+	if _hook != null and is_instance_valid(_hook):
+		_adopt_hook_rope_wraps(PackedVector3Array(_hook.call(METHOD_HOOK_GET_ANCHOR_WRAPS)), attach_position)
+	var pivot: Vector3 = _get_hook_pivot()
+	var min_free_length: float = maxf(MovementHook.min_free_rope_length, 0.1)
+	_rope_length = clampf(
+		_hook_wrap_fixed_length + attach_position.distance_to(pivot),
+		maxf(MovementHook.min_rope_length, _hook_wrap_fixed_length + min_free_length),
+		maxf(MovementHook.max_rope_length, _hook_wrap_fixed_length + min_free_length)
+	)
 	_hook_last_clear_attach = attach_position
-	_has_hook_clear_attach = _raycast_climb_segment(attach_position, anchor_point).is_empty()
+	_has_hook_clear_attach = _raycast_climb_segment(attach_position, pivot).is_empty()
+	if not _has_hook_clear_attach:
+		# The hook checked its line from the hand; the body's attach point sits a little lower and
+		# can graze a corner the hand clears. Start from the hand so that corner gets wrapped.
+		var camera: Camera3D = get_viewport().get_camera_3d()
+		if camera != null:
+			var hand_position: Vector3 = camera.global_transform * MovementHook.hand_offset
+			if _raycast_climb_segment(hand_position, pivot).is_empty():
+				_hook_last_clear_attach = hand_position
+				_has_hook_clear_attach = true
 	_hook_rope_blocked_timer = 0.0
 	_hook_catch_feedback = 1.0
 	_stop_wall_run()
@@ -3251,8 +3291,9 @@ func _try_wrap_hook_rope(attach_position: Vector3, pivot: Vector3) -> bool:
 	var corner: Vector3 = Vector3(corner_hit.position)
 	var corner_normal: Vector3 = Vector3(corner_hit.normal)
 	# Push the wrap point back the way the rope swept in from, so it sits just clear of the edge.
+	# Use this tick's whole sweep: the bisected pair is too close together for float precision.
 	var rope_direction: Vector3 = (corner - pivot).normalized()
-	var away_from_corner: Vector3 = clear_attach - blocked_attach
+	var away_from_corner: Vector3 = _hook_last_clear_attach - attach_position
 	away_from_corner -= rope_direction * away_from_corner.dot(rope_direction)
 	if away_from_corner.length_squared() < 0.0000000001:
 		away_from_corner = corner_normal
@@ -3290,6 +3331,23 @@ func _try_unwrap_hook_rope(attach_position: Vector3) -> void:
 		_hook_wrap_points.pop_back()
 		_hook_wrap_sides.pop_back()
 		_sync_hook_rope_wrap_visual()
+
+
+## Takes over the corners the thrown rope already bends over (ordered anchor -> player),
+## so the swing pivots on the right corner from the first tick.
+func _adopt_hook_rope_wraps(points: PackedVector3Array, attach_position: Vector3) -> void:
+	var previous_point: Vector3 = _hook_anchor
+	for i in points.size():
+		var wrap_point: Vector3 = points[i]
+		var next_point: Vector3 = attach_position if i == points.size() - 1 else points[i + 1]
+		var bend_side: Vector3 = (wrap_point - previous_point).cross(next_point - wrap_point)
+		if bend_side.length_squared() < 0.000001:
+			continue
+		_hook_wrap_points.append(wrap_point)
+		_hook_wrap_sides.append(bend_side.normalized())
+		_hook_wrap_fixed_length += previous_point.distance_to(wrap_point)
+		previous_point = wrap_point
+	_sync_hook_rope_wrap_visual()
 
 
 func _clear_hook_rope_wrap() -> void:

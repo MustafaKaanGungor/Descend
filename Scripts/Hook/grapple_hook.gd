@@ -1,8 +1,9 @@
 extends Node3D
 ## Thrown grappling hook.
-## Flies out on an arc until it reaches the rope length or hits something, then the rope
-## is pulled back in slowly. A hook lying on a top surface gets dragged toward the player,
-## and when it reaches a lip with a real drop below it, it catches there and anchors.
+## Flies out on an arc until it reaches the rope length or hits something. Landing on an
+## upward-facing top surface above the hand catches right away. Otherwise it lies or hangs on
+## slack rope until the player pulls it in (set_pulling); a pulled hook is dragged over
+## surfaces and can still catch on a top or a lip on the way.
 ## The rope bends over any corner between the hook and the hand, so the hook is always
 ## pulled along the rope's real path and never through walls.
 ## Tuning lives in the MovementHook autoload. The player drives it with release().
@@ -37,7 +38,9 @@ var _is_climbing_wall: bool = false
 var _wall_normal: Vector3 = Vector3.ZERO
 var _rope_out: float = 0.0
 var _rope_path_length: float = 0.0
-var _retract_timer: float = 0.0
+var _is_pulling: bool = false
+## Corners the rope bent over when the hook anchored, ordered from the anchor toward the hand.
+var _anchor_wraps: PackedVector3Array = PackedVector3Array()
 var _anchor_point: Vector3 = Vector3.ZERO
 var _model: Node3D
 var _rope: MeshInstance3D
@@ -102,6 +105,24 @@ func set_rope_slack(slack: float) -> void:
 	_anchored_slack = maxf(slack, 0.0)
 
 
+## True while the player is pulling the rope in. A hook that has not caught stays put otherwise.
+func set_pulling(pulling: bool) -> void:
+	_is_pulling = pulling
+
+
+func get_anchor_wraps() -> PackedVector3Array:
+	return _anchor_wraps
+
+
+## Rope paid out between the hand and the hook along its wrapped path. 0 once anchored;
+## the player owns the rope length from then on.
+func get_rope_out_length() -> float:
+	if _state == STATE_ANCHORED or _state == STATE_RETURNED or _hand_node == null or not is_instance_valid(_hand_node):
+		return 0.0
+	var hand_position: Vector3 = _get_hand_position()
+	return _get_wrapped_rope_length(hand_position) + global_position.distance_to(_get_rope_pivot(hand_position))
+
+
 func get_state() -> StringName:
 	return _state
 
@@ -153,6 +174,8 @@ func _update_flying(delta: float) -> void:
 	if not hit.is_empty():
 		_settle_on_hit(hit)
 		_update_hook_rope_wrap(hand_position)
+		if _is_supported and _try_catch_on_surface():
+			return
 		_start_retract()
 		return
 
@@ -204,37 +227,40 @@ func _apply_rope_stretch(pivot: Vector3, wrapped_length: float, max_length: floa
 
 func _start_retract() -> void:
 	_state = STATE_RETRACTING
-	_retract_timer = 0.0
 	var hand_position: Vector3 = _get_hand_position()
 	_rope_out = _get_wrapped_rope_length(hand_position) + global_position.distance_to(_get_rope_pivot(hand_position))
 
 
 func _update_retracting(delta: float) -> void:
-	_retract_timer += delta
 	var hand_position: Vector3 = _get_hand_position()
 	_update_hook_rope_wrap(hand_position)
-	var near_hand: bool = _hook_wraps.is_empty() and global_position.distance_to(hand_position) <= MovementHook.return_distance
-	if near_hand or _retract_timer >= MovementHook.max_retract_time:
+	if _hook_wraps.is_empty() and global_position.distance_to(hand_position) <= MovementHook.return_distance:
 		_finish_return()
 		return
 
-	# The rope is pulled in at a steady rate along its wrapped path; slack rope is taken up first.
 	var pivot: Vector3 = _get_rope_pivot(hand_position)
 	var wrapped_length: float = _get_wrapped_rope_length(hand_position)
 	var free_distance: float = global_position.distance_to(pivot)
 	_rope_path_length = wrapped_length + free_distance
-	_rope_out = minf(_rope_out, _rope_path_length)
-	if _retract_timer < MovementHook.retract_start_delay:
-		# The rope stays slack for a moment after the hook lands, so it drops and settles
-		# (e.g. slides down a wall onto a beam) before the pull starts.
-		if not _is_supported and not _is_climbing_wall:
+
+	if not _is_pulling:
+		# Nobody is pulling: the rope pays out freely up to its full length and the hook just
+		# lies or hangs where it is. It can still fall onto a top surface and catch there.
+		_rope_out = maxf(MovementHook.max_rope_length, _rope_path_length)
+		_is_climbing_wall = false
+		if not _is_supported:
 			_update_hanging(delta, pivot, maxf(_rope_out - wrapped_length, 0.05))
+		_try_catch_after_move(hand_position)
 		return
+
+	# The player pulls the rope in along its wrapped path; slack rope is taken up first.
+	_rope_out = minf(_rope_out, _rope_path_length)
 	_rope_out = maxf(_rope_out - maxf(MovementHook.retract_speed, 0.0) * delta, 0.0)
 
 	# Pulled right up to a corner while hanging or climbing: the hook goes over it.
 	if not _is_supported and not _hook_wraps.is_empty() and free_distance <= MovementHook.wrap_pass_distance:
 		_pass_over_wrap(hand_position)
+		_try_catch_after_move(hand_position)
 		return
 
 	if _is_climbing_wall:
@@ -243,6 +269,64 @@ func _update_retracting(delta: float) -> void:
 		_update_supported_drag(delta, pivot, hand_position)
 	else:
 		_update_hanging(delta, pivot, maxf(_rope_out - wrapped_length, 0.05))
+	_try_catch_after_move(hand_position)
+
+
+func _try_catch_after_move(hand_position: Vector3) -> void:
+	if _state != STATE_RETRACTING or not _is_supported:
+		return
+	_update_hook_rope_wrap(hand_position)
+	_try_catch_on_surface()
+
+
+## The hook rests on an upward-facing top surface (ground included): anchor right here.
+## When the rope runs over the edge nearest the player, it anchors on that edge instead.
+func _try_catch_on_surface() -> bool:
+	if not MovementHook.catch_on_top_surfaces:
+		return false
+	var hand_position: Vector3 = _get_hand_position()
+	var radius: float = maxf(MovementHook.hook_radius, 0.01)
+	var offset: float = maxf(MovementHook.anchor_surface_offset, 0.0)
+	var anchor: Vector3 = global_position + Vector3.UP * (offset - radius)
+	if _hook_wraps.is_empty():
+		if _raycast(hand_position, anchor).is_empty():
+			_anchor_at(anchor, anchor - hand_position, false)
+			return true
+		# The rope runs over this surface's edge on the way to the hand: catch on that edge.
+		return _try_anchor_on_lip_toward(hand_position)
+
+	var pivot: Vector3 = _get_rope_pivot(hand_position)
+	if _raycast_rope(pivot, anchor).is_empty():
+		_anchor_at(anchor, anchor - pivot, true)
+		return true
+	return false
+
+
+## Walks across the top surface toward the hand until it runs out, then anchors on that lip.
+func _try_anchor_on_lip_toward(hand_position: Vector3) -> bool:
+	var to_hand: Vector3 = hand_position - global_position
+	var direction: Vector3 = Vector3(to_hand.x, 0.0, to_hand.z).normalized()
+	if direction == Vector3.ZERO:
+		return false
+
+	var radius: float = maxf(MovementHook.hook_radius, 0.01)
+	var step: float = 0.1
+	var probe_depth: float = maxf(MovementHook.support_probe_depth, MovementHook.min_lip_height)
+	var probe_position: Vector3 = global_position
+	var top_y: float = probe_position.y - radius
+	var travelled: float = 0.0
+	while travelled < MovementHook.surface_catch_lip_search_distance:
+		var next_position: Vector3 = probe_position + direction * step
+		if not _raycast(probe_position, next_position + direction * radius).is_empty():
+			return false
+		var floor_hit: Dictionary = _raycast(next_position + Vector3.UP * radius, next_position + Vector3.DOWN * (probe_depth + radius))
+		if floor_hit.is_empty() or not MovementHook.is_support_normal(Vector3(floor_hit.normal)):
+			var edge_point: Vector3 = _find_edge_point(next_position, direction, top_y, step + radius * 2.0)
+			return _try_anchor(edge_point, hand_position)
+		probe_position = Vector3(next_position.x, Vector3(floor_hit.position).y + radius, next_position.z)
+		top_y = probe_position.y - radius
+		travelled += step
+	return false
 
 
 ## Hook lies on a top surface and is dragged along the rope until it reaches a lip.
@@ -293,6 +377,10 @@ func _update_hanging(delta: float, pivot: Vector3, free_rope: float) -> void:
 	var hit: Dictionary = _raycast(from, to)
 	if hit.is_empty():
 		global_position = to
+		# Velocity from the actual move, so the rope's pull shows up in it. Not after a hit:
+		# the snap out to the surface isn't real motion and would read as a sideways jolt.
+		if delta > 0.0:
+			_velocity = (global_position - from) / delta
 	else:
 		_settle_on_hit(hit)
 		var hit_normal: Vector3 = Vector3(hit.normal)
@@ -300,9 +388,6 @@ func _update_hanging(delta: float, pivot: Vector3, free_rope: float) -> void:
 		if not _is_supported and hit_normal.dot(pivot - global_position) < 0.0:
 			_start_wall_climb(hit_normal)
 			return
-
-	if delta > 0.0:
-		_velocity = (global_position - from) / delta
 	_face_direction(_velocity)
 
 
@@ -444,8 +529,9 @@ func _try_wrap_hook_rope(pivot: Vector3) -> bool:
 	var corner: Vector3 = Vector3(corner_hit.position)
 	var corner_normal: Vector3 = Vector3(corner_hit.normal)
 	# Push the wrap point back the way the rope swept in from, so it sits just clear of the edge.
+	# Use this tick's whole sweep: the bisected pair is too close together for float precision.
 	var rope_direction: Vector3 = (corner - pivot).normalized()
-	var away_from_corner: Vector3 = clear_position - blocked_position
+	var away_from_corner: Vector3 = _last_clear_hook_position - global_position
 	away_from_corner -= rope_direction * away_from_corner.dot(rope_direction)
 	if away_from_corner.length_squared() < 0.0000000001:
 		away_from_corner = corner_normal
@@ -520,7 +606,8 @@ func _settle_on_hit(hit: Dictionary) -> void:
 	if _is_supported:
 		_velocity = Vector3.ZERO
 	else:
-		_velocity = _velocity.slide(normal) * 0.3
+		# Steel on stone: most of the speed along the surface is lost, so the hook drops instead of skidding.
+		_velocity = _velocity.slide(normal) * clampf(MovementHook.wall_hit_speed_keep, 0.0, 1.0)
 
 
 ## Finds the exact edge by casting back at the face just below the top surface.
@@ -534,9 +621,6 @@ func _find_edge_point(past_edge_position: Vector3, drag_direction: Vector3, top_
 
 
 func _try_anchor(edge_point: Vector3, hand_position: Vector3) -> bool:
-	if edge_point.y < hand_position.y + MovementHook.min_anchor_height_above_hand:
-		return false
-
 	var toward_hand: Vector3 = hand_position - edge_point
 	toward_hand.y = 0.0
 	var offset: float = maxf(MovementHook.anchor_surface_offset, 0.0)
@@ -544,15 +628,26 @@ func _try_anchor(edge_point: Vector3, hand_position: Vector3) -> bool:
 	if not _raycast(hand_position, anchor).is_empty():
 		return false
 
+	_anchor_at(anchor, -toward_hand, false)
+	return true
+
+
+## keep_wraps hands the corners the rope bends over to the player along with the anchor.
+func _anchor_at(anchor: Vector3, facing_direction: Vector3, keep_wraps: bool) -> void:
+	_anchor_wraps.clear()
+	if keep_wraps:
+		for i in range(_hook_wraps.size() - 1, -1, -1):
+			_anchor_wraps.append(_hook_wraps[i])
 	_anchor_point = anchor
 	_state = STATE_ANCHORED
 	_velocity = Vector3.ZERO
+	_is_supported = false
+	_is_climbing_wall = false
 	_clear_hook_wraps()
 	global_position = anchor
-	_face_direction(-toward_hand)
+	_face_direction(Vector3(facing_direction.x, 0.0, facing_direction.z))
 	_play_catch_sound()
 	anchored.emit(anchor)
-	return true
 
 
 func _play_catch_sound() -> void:

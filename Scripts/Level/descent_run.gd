@@ -1,6 +1,6 @@
 extends Node
-## Runs a descent level: puts the player back on the last ledge they stood on after a long
-## fall, and builds the next level when they reach the goal at the bottom of the shaft.
+## Runs a descent level: when the player dies (from hard landings), puts them back on the last
+## ledge they stood on with full health, and builds the next level when they reach the goal.
 
 const GROUP_RESPAWN_GROUND: StringName = &"respawn_ground"
 const META_RESPAWN_POINT: StringName = &"respawn_point"
@@ -10,9 +10,9 @@ const METHOD_RESPAWN_AT: StringName = &"respawn_at"
 @export var generator_path: NodePath = NodePath("../LevelGenerator")
 @export var player_path: NodePath = NodePath("../Player")
 
-@export_group("Respawn")
-## Falling this far below the last ledge stood on puts the player back on it.
-@export var respawn_fall_distance: float = 16.0
+@export_group("Death")
+## Seconds between dying and respawning on the last ledge.
+@export var death_respawn_delay: float = 0.8
 
 var _generator: Node3D
 var _player: CharacterBody3D
@@ -25,6 +25,7 @@ func _ready() -> void:
 	_generator = get_node_or_null(generator_path) as Node3D
 	if _generator != null and _generator.has_signal(&"goal_reached"):
 		_generator.connect(&"goal_reached", _on_goal_reached)
+	HealthManager.died.connect(_on_player_died)
 
 
 func _physics_process(_delta: float) -> void:
@@ -33,9 +34,9 @@ func _physics_process(_delta: float) -> void:
 		if _player == null:
 			return
 
-	_update_safe_point()
-	if _has_safe_point and _player.global_position.y < _safe_point.y - respawn_fall_distance:
-		_respawn(_safe_point, _player.rotation.y)
+	# The spot where the player just died must not become the respawn point.
+	if not HealthManager.is_dead():
+		_update_safe_point()
 
 
 func _update_safe_point() -> void:
@@ -57,6 +58,18 @@ func _respawn(spawn_position: Vector3, yaw: float) -> void:
 		_player.call(METHOD_RESPAWN_AT, spawn_position, yaw)
 
 
+func _on_player_died() -> void:
+	await get_tree().create_timer(maxf(death_respawn_delay, 0.0)).timeout
+	if _player == null or not is_instance_valid(_player):
+		return
+	if _has_safe_point:
+		_respawn(_safe_point, _player.rotation.y)
+	elif _generator != null and _generator.has_method(&"get_start_transform"):
+		var start: Transform3D = Transform3D(_generator.call(&"get_start_transform"))
+		_respawn(start.origin, start.basis.get_euler().y)
+	HealthManager.reset_health()
+
+
 func _on_goal_reached(body: Node3D) -> void:
 	if body != _player or _is_changing_level:
 		return
@@ -72,4 +85,5 @@ func _start_next_level() -> void:
 		_has_safe_point = false
 		if _player != null and is_instance_valid(_player):
 			_respawn(start.origin, start.basis.get_euler().y)
+		HealthManager.reset_health()
 	_is_changing_level = false

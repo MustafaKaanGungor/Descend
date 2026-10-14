@@ -27,12 +27,17 @@ extends Node
 @export_flags_3d_physics var hook_collision_mask: int = 1
 
 @export_group("Retract And Catch")
-## Speed the rope is pulled back in after the throw. Slow, so the hook drags over ledges.
-@export var retract_speed: float = 4.0
-## Slack pause after the hook lands before the pull starts, so it can drop onto what is below it.
-@export var retract_start_delay: float = 0.45
+## Catch right away when the hook settles on any upward-facing top surface, ground included.
+@export var catch_on_top_surfaces: bool = true
+## How far across a top surface the hook looks for the edge nearest the player when the rope
+## runs over that edge.
+@export var surface_catch_lip_search_distance: float = 4.0
+## Speed the rope is pulled in while the player holds the reel key on a hook that has not caught.
+@export var retract_speed: float = 7.0
 ## Speed the hook is reeled in after letting go of the hook button.
 @export var cancel_reel_speed: float = 55.0
+## Share of speed along a wall the hook keeps when it hits one; low, so it drops onto what is below.
+@export var wall_hit_speed_keep: float = 0.03
 ## Collision radius of the hook head.
 @export var hook_radius: float = 0.08
 ## Lowest surface normal Y that the hook can rest on and drag across.
@@ -41,16 +46,12 @@ extends Node
 @export var support_probe_depth: float = 0.3
 ## Minimum drop past a lip before the hook can catch it.
 @export var min_lip_height: float = 0.6
-## Lip must be at least this much higher than the hand to catch.
-@export var min_anchor_height_above_hand: float = 0.5
 ## Anchor is pushed this far out and up from the edge so the rope clears the corner.
 @export var anchor_surface_offset: float = 0.06
 ## Air drag on a hanging hook so it settles instead of swinging forever.
 @export var hook_air_drag: float = 1.2
 ## Hook is caught back in the hand inside this distance.
 @export var return_distance: float = 0.9
-## Safety limit for how long a retract may take.
-@export var max_retract_time: float = 8.0
 
 @export_group("Swing")
 ## Rope attach point height on the player body; the hands hold it above the head.

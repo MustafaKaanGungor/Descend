@@ -36,6 +36,11 @@ Player scene tree: `Player` → `Head` → `Camera3D` → `Hands`.
   - `InputManager` handles input actions, hold-to-sprint and the double-tap-forward sprint.
   - `WorldBasicRules` holds gravity, terminal fall speed and the spawn offset.
   - `StaminaManager` lives at the **project root**, not in `Scripts/`. It handles drain per movement type and instant costs, emits `stamina_changed` and `stamina_depleted`, and provides `can_*()` gates.
+  - `HealthManager` (`Scripts/DataScripts/HealthManager.gd`, registered by `res://` path) holds player health and emits `health_changed`, `damaged` and `died`.
+    - The player calls `HealthManager.register_landing(fall_speed)` in `_update_landing_feedback`.
+    - Fall damage is tuned in metres of free fall: the landing speed is converted with the player's falling gravity (`WorldBasicRules` gravity × `MovementJump.player_weight` × `jump_fall_gravity_multiplier`). So a rope-slowed landing after a long swing doesn't count as a long fall.
+    - No damage up to `safe_fall_height`, a full-health hit at `lethal_fall_height`, shaped by `fall_damage_curve`.
+    - `reset_health()` grants `invulnerable_time_after_reset`.
   - `LoudnessManger` (misspelled, but every reference uses this name, so don't rename it casually) tracks the short-term noise meter with `register_jump/landing/sound` and `push_loudness`.
   - `TotalLoudnessManager` tracks the permanent level noise meter. LoudnessManger feeds it.
 - Empty placeholders: `GameManager`, `MovementRules`, `PlayerMovementFeel`, `UiManager`.
@@ -45,16 +50,22 @@ If you add a new tunable, put it in the matching Movement/Feel autoload as an `@
 ### Grappling hook
 - `Scripts/Hook/grapple_hook.gd` (`Scenes/Hook/grapple_hook.tscn`) is the thrown hook. The player spawns it into `current_scene`. It runs its own state machine: `flying` → `retracting` → `anchored`, or `reeling` → `returned`, after which it frees itself. It emits `anchored(point)` and `returned`.
   - **flying:** arcs under gravity. Paid-out rope adds growing drag (`rope_payout_drag`). Past full length the rope acts as a stiff spring (`rope_stretch_*`), braking the hook over a short stretch and springing it back, so it never stops dead in the air. It then swings down on the rope. The `rope_snapped` signal drives a small camera tug.
-  - **retracting:** the rope is pulled in slowly. A hook lying on a top surface is dragged toward the player. A wall between the hook and the player gets climbed, since the rope runs over it. When the hook reaches a lip with a real drop, sitting above the hand and with a clear line to it, it anchors there.
+  - **Instant catch:** the moment the hook settles on any upward-facing top surface (`catch_on_top_surfaces`), `_try_catch_on_surface` anchors it, ground included. There is no height rule, so a hook lying on the ground ahead, behind a wall or at your feet catches too.
+    - If the straight line from the hand to that spot is blocked by the surface's own edge, it walks toward the hand (`surface_catch_lip_search_distance`) and anchors on that lip.
+    - If the rope already bends over corners, they are handed to the player through `get_anchor_wraps()`.
+  - **retracting (hanging, not caught yet):** there is no automatic pull. Since any top surface catches, this is mostly a hook hanging off a wall or ledge face. The rope pays out freely up to its full length and the hook lies or hangs where it landed.
+    - Wall hits keep only `wall_hit_speed_keep` of their sliding speed, so the hook drops instead of skidding along walls.
+    - Only while the player pulls (`set_pulling`, i.e. Shift held on an uncaught hook) is the rope reeled in at `retract_speed`. A pulled hook is dragged over tops, climbs walls the rope runs over, and catches on a top or lip on the way.
   - **Hook-side rope wrapping:** before anchoring, the hook keeps its own corner stack (`_hook_wraps`, ordered hand → hook) and runs the same wrap/unwrap logic as the player, using bisection plus a bend-side flip check. So the rope bends over walls between the hand and the hook.
     - Retracting pulls the hook toward the last corner, not the hand. A hook pulled within `wrap_pass_distance` of a corner is pulled over it.
     - Reeling follows the corners back.
     - On anchoring the hook's corners are cleared. On release, the player's corners are handed back to the hook so it reels along them.
     - `_raycast_rope` ignores the last `rope_contact_ignore_distance` before the hook, so a hook resting on a surface doesn't count as wrapped around it.
-    - Wrap points are pushed back along the direction the rope swept in from, not off the old rope line, which is degenerate at the corner.
+    - Wrap points are pushed back along the direction the rope swept in from this tick (last clear position minus current position), not along the bisected pair. That pair converges too tightly for float32 precision.
   - It also draws the rope mesh, using interpolated transforms. Slack rope sags as a parabola (`HookFeel` "Rope Look"); while anchored, the player sends the slack each tick through `set_rope_slack`.
 - On the player side (the hook block at the end of `player.gd`):
-  - Hold LMB to throw and stay attached; let go to release.
+  - Hold LMB to throw and stay attached; let go to release. Holding Shift on a hook that hasn't caught pulls it in (sprint is suppressed meanwhile).
+  - When anchoring, `_adopt_hook_rope_wraps` takes over the hook's corners. If the body's attach line is blocked but the hand's line (which the hook checked) is clear, the rope starts from the hand so the grazed corner gets wrapped instead of breaking the rope.
   - While anchored, Shift reels in (drains stamina) and Ctrl lets out, replacing sprint and crouch.
   - WASD pumps the swing; Space releases with a boost.
   - The rope is an inextensible constraint applied around `move_and_slide()`: outward velocity is removed beforehand, and stretch is corrected with `move_and_collide` afterwards.
@@ -75,17 +86,30 @@ If you add a new tunable, put it in the matching Movement/Feel autoload as an `@
 
 ### Descent levels
 - `Scenes/Levels/descent_level.tscn` is a root using `main.gd` (spawns the player at `PlayerSpawn`). Its children are `WorldEnvironment`, a `Sun`, the UI and speed shader, `LevelGenerator` and `DescentRun`.
-- **`Scripts/Level/level_generator.gd`** (`@tool`) builds everything under a `Generated` child on `_ready`:
-  - **Shaft:** a round shaft of flat wall boxes (`shaft_radius`, `wall_segments`) with a start platform at y=0.
-  - **Ledges:** `stage_count` ledges spiral down the wall, each with a lamp.
-  - **Beams:** a hook beam sits on the wall above each ledge. Its lip has a glowing, visual-only strip.
-  - **Bottom:** a floor with a goal ring and `Area3D`.
-  - **Seed:** `level_seed` 0 means a new random layout per run; any other value is repeatable. The seed is printed. Editor preview and the inspector "Regenerate" button use `@export_tool_button`.
-  - **Beam height** is solved per stage (`_plan_stage`) so that hooking the lip from the previous ledge's edge and swinging bottoms out `swing_landing_clearance` above the next ledge: v = (s² − k²)/2k, where s is the horizontal launch-to-lip distance and k is drop − clearance.
-  - **Constraints:** `min_anchor_height_above_hand` and `max_initial_rope_length` keep it hookable. `rope_attach_height` must match `MovementHook.body_attach_height`.
-  - **Overlaps** are rejected with a cylindrical-coordinate check (`_overlaps_piece`). Stages retry 160 times, alternating spiral direction.
-  - `get_stages()` returns the ledge and anchor data.
-- **`Scripts/Level/descent_run.gd`** records the last `respawn_ground` collider the player stood on (its `respawn_point` meta). It calls `player.respawn_at()` after a fall of `respawn_fall_distance` below it. On `goal_reached` it builds the next level (deferred) and respawns the player at the new start.
+- **`Scripts/Level/level_generator.gd`** (`@tool`) builds everything under a `Generated` child on `_ready`. About 0.5–1 s per level.
+  - **Shaft shape:** one function, `_wall_radius(angle, y)`, describes the wall, and every check uses it.
+    - Rings of flat wall pieces, `wall_band_height` tall and `wall_segments` around.
+    - The radius follows a slow 1D noise along the depth (`_chamber_radius`, between `shaft_radius_min` and `shaft_radius_max`), giving wide chambers and narrow choke points.
+    - On top of that, 3D noise around the circle adds bumpiness (`wall_bumpiness`).
+    - Each ring is one `StaticBody3D` with a box shape per piece and one merged mesh, to keep draw calls low.
+  - **Route:** `stage_count` (30) stations below a start platform, about 250 m deep.
+    - Each station is either a **wall ledge** or a **hanging platform** (`mid_station_chance`).
+    - A wall ledge comes in four styles: `box`, curved `arc` shelf, `stepped` (lower side steps) or `broken` (rubble chunks). Its hook beam on the wall above stretches so its lip sits over the ledge, and a backplate above the beam turns slightly-high throws into drops onto it.
+    - A hanging platform has a far-side fence, which stops the swing the way the wall does, a girder above it with a backboard, and visual-only chains.
+  - **Swing solve:** `_solve_swing` places each hook point so the swing from the closest standing spot on the previous station (`_closest_launch_point`) bottoms out `swing_landing_clearance` above the station: v = (s² − k²)/2k, where s is the horizontal launch-to-lip distance and k is drop − clearance. `min_anchor_height_above_hand` and `max_initial_rope_length` keep it hookable. `rope_attach_height`, `hook_throw_speed` and `hook_throw_gravity` mirror `MovementHook` values, because the `@tool` script can't read autoloads in the editor.
+  - **Corridors:** each transition records the spaces the route needs: the rope at the catch, the hook's ballistic flight to its aim point (`_throw_flight_corridors`), the swing arc as body capsules, the rope's sweep during the swing, and the landing space.
+    - A plan is accepted only if its corridors stay out of the wall and other solids, and its pieces stay out of solids and earlier corridors.
+    - Corridors that end on the hook point (`ends_on_hook_point`) ignore that station's own hook pieces.
+    - The launch station's floor (`floor_solids`: the slab, arc segments and steps up to 0.6 m down) is ignored, because you walk off it.
+    - Solids are rotated boxes, checked with a separating-axis test (`_solids_overlap`). Solids and corridors are indexed by 8 m height slices (`_near`).
+  - **Backtracking:** the route is planned as data first (`_reserve_station`). A dead end undoes the last station (`_unreserve_station`, up to `max_route_backtracks`). Nodes are built only once the route is final (`_build_station`).
+  - **Structures, placed only where they miss every corridor:** pillars from the floor (with lit capitals), bridges spanning the shaft, tilted overhangs, thin ribs, buttresses, pipes with brackets, and extra beams. Bridges, capitals and ledges are `respawn_ground`.
+  - **Seed:** `level_seed` 0 means a new random layout per run; any other value is repeatable. The seed, station count and depth are printed. Editor preview and the inspector "Regenerate" button use `@export_tool_button`.
+  - **`get_stages()`** returns per-station data: type, y, landing rectangle, respawn_point, lip, anchor_y, launch, and for wall stations angle and style. `get_wall_radius()` and `get_floor_y()` expose the shape.
+- **`Scripts/Level/descent_run.gd`** records the last `respawn_ground` collider the player stood on (its `respawn_point` meta), but not while dead, so the death spot never becomes the respawn point.
+  - There is no fall respawn: falling is only punished by fall damage.
+  - On `HealthManager.died` it waits `death_respawn_delay`, then calls `player.respawn_at()` on that ledge (or the start) and resets health.
+  - On `goal_reached` it builds the next level (deferred), respawns the player at the new start and resets health.
 - `player.respawn_at(position, yaw)` clears the hook and all movement states. Use it for any teleport.
 
 ### Weapons, props, UI
@@ -93,7 +117,9 @@ If you add a new tunable, put it in the matching Movement/Feel autoload as an `@
 - `Weapons/pistol.gd` aims through the screen center and spawns `projectile.tscn` into `current_scene`. It emits `fired` and `ammo_changed`, joins the group `player_weapons` (the HUD finds it there), uses a magazine with unlimited reserve and auto-reloads when empty, and pushes a loudness spike when it fires.
 - `Weapons/projectile.gd` is a real moving bullet that raycasts its travel segment every tick. It belongs to the group `projectiles` and supports `stop/resume/redirect/time_scale` for future abilities. On a hit it calls `on_projectile_hit(hit_info)` on the collider if that method exists, and spawns `impact_decal.tscn` unless the collider is in `no_impact_decals`.
 - `Props/shootable_target.gd` wobbles when hit, breaks into fragments (collision layer 2) and respawns. It builds its collision from the model mesh. `Props/physics_crate.gd` is a crate that reacts to physics.
-- `UI/ui.tscn` (CanvasLayer `HudRoot`) holds the total loudness, loudness and stamina bars, and the crosshair. The bars connect to the manager autoload signals.
+- `UI/ui.tscn` (CanvasLayer `HudRoot`) holds, top to bottom, the health, total loudness, loudness, stamina and rope bars, plus the crosshair and a full-screen `DamageFlash`. The health, loudness and stamina bars connect to the manager autoload signals.
+- `UI/health_bar.gd` follows `HealthManager.health_changed`. `UI/damage_flash.gd` flashes red on `HealthManager.damaged`, stronger for bigger hits.
+- `UI/rope_bar.gd` (`rope_bar.tscn`) polls the player's `get_rope_used_length()` and `get_rope_max_length()` (found by searching the scene) and shows "Rope used / max m". The fill goes from rope-tan to orange to red as the rope runs out.
 
 ### Collision and import
 - Level geometry and movement raycasts use **collision layer 1**.
